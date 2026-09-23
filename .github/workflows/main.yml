@@ -1,0 +1,65 @@
+name: SQL Trigger Autograder
+
+on: [push, pull_request]
+
+jobs:
+  autograding:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: testdb
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Verify solution.sql Exists
+        run: |
+          if [ ! -f "solution.sql" ]; then
+            echo "ERROR: solution.sql file not found in repository root!"
+            exit 1
+          fi
+
+      - name: Set up Database Schema and Test Data
+        run: |
+          mysql -h 127.0.0.1 -u root -proot testdb -e "
+          DROP TABLE IF EXISTS Employee;
+          CREATE TABLE Employee (
+              EmpID INT PRIMARY KEY,
+              EmpName VARCHAR(100),
+              Department VARCHAR(50),
+              Salary DECIMAL(10, 2)
+          );
+          "
+
+      - name: Execute Student Solution
+        run: |
+          mysql -h 127.0.0.1 -u root -proot testdb < solution.sql
+
+      - name: Test Trigger Execution
+        run: |
+          # Insert a record to fire the AFTER INSERT trigger
+          mysql -h 127.0.0.1 -u root -proot testdb -e "
+          INSERT INTO Employee (EmpID, EmpName, Department, Salary) 
+          VALUES (101, 'John Doe', 'IT', 55000.00);
+          " > output.txt 2>&1
+
+          cat output.txt
+
+          # Verify employee was successfully inserted
+          mysql -h 127.0.0.1 -u root -proot testdb -e "SELECT * FROM Employee WHERE EmpID = 101;" > verify.txt
+          grep -q "John Doe" verify.txt
+
+      - name: Validate Trigger Syntax
+        run: |
+          # Check for key SQL trigger keywords in solution.sql
+          grep -i -q "CREATE TRIGGER" solution.sql && \
+          grep -i -q "AFTER INSERT ON" solution.sql && \
+          grep -i -q "FOR EACH ROW" solution.sql
